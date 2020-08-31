@@ -1,5 +1,6 @@
 ﻿using SumTotal.Framework.Container;
 using SumTotal.Framework.Data;
+using SumTotal.Models.Configuration.Settings;
 using SumTotal.Repository.Contracts.Infra;
 using SumTotal.Services.DataContracts.Core.Lookups;
 using SumTotal.Services.Facade.Contracts.Core.Lookups;
@@ -38,23 +39,47 @@ namespace Sumtotal.ConfigurationsAutomation.Services
                 group = parameters["Group"].ToString();
                 settingstoExport = parameters["SettingsExport"].ToString();
                 string reportPath = parameters["ExtractPath"].ToString();
-
+                string orgCodestoExport = parameters["OrgCodestoExport"].ToString();
+                DataTable dtOrgDetails = GetOrgDetails(orgCodestoExport);
+                if (string.IsNullOrEmpty(settingstoExport))
+                {
                 ISystemJobRepository systemJobRepository = SumtContainer.Resolve<ISystemJobRepository>();
                 ICodeDefinitionFacade facade = SumtContainer.Resolve<ICodeDefinitionFacade>();
                 CodeDefinitionDTO codeDefinition = facade.GetCodeDefinitionWithAttributes(masterCategoryCode);
-
-                IList<CodeDTO> codes = codeDefinition.Codes.Where(c => c.ItemText.Equals(settingstoExport)).ToList();
+                    List<string> settings = settingstoExport.Split(new string[] { "," }, StringSplitOptions.RemoveEmptyEntries).ToList();
+                    IList<CodeDTO> codes = codeDefinition.Codes.Where(c => settings.Any(b => string.Compare(c.ItemCode, b, true) == 0)).ToList();
+                    string domainCondition = "";
+                    if (group == "I")
+                    {
                 string sectionLookupClause = string.Empty;
                 foreach (CodeDTO code in codes)
                 {
                     String[] sectionLookups = code.CodeAttributeDTO.Attr2Val.Split(',');
                     for (int i = 0; i < sectionLookups.Length; i++)
                     {
+                                if (dtOrgDetails != null && dtOrgDetails.Rows.Count != 0) 
+                                {
+                                    domainCondition = "";
+                                    foreach(DataRow row in dtOrgDetails.Rows)
+                                    {
+                                        domainCondition += " p.Section like '%" + "Domain/" + row[0] + "/" + sectionLookups[i]  + "%'";
+                                    }
+                                    sectionLookups[i] = domainCondition;
+                                }
+                                else
+                                {
                         sectionLookups[i] = " p.Section like '%" + sectionLookups[i] + "%'";
                     }
+                            }
                     sectionLookupClause += String.Join(" OR ", sectionLookups);
                 }
                 GetPersistData(reportPath, sectionLookupClause);
+                    }
+                    else if(group == "II")
+                    {
+
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -66,6 +91,18 @@ namespace Sumtotal.ConfigurationsAutomation.Services
                 dataProvider.Close();
             }
 
+        }
+        private DataTable GetOrgDetails(string OrgCodesToExport)
+        {
+            DataTable dt = new DataTable();
+            string cmdOrgDetails = "Select OrganizationPK,code from Organization";
+            cmdOrgDetails = string.IsNullOrEmpty(OrgCodesToExport) ? cmdOrgDetails : cmdOrgDetails + " Where Code in ('" + OrgCodesToExport.Replace(",", "','") + "')";
+            DataSet dataSet = dataProvider.ExecuteSelectSql(cmdOrgDetails);
+            dt = dataSet.Tables[0];
+            dt.PrimaryKey = new DataColumn[] {
+                    dt.Columns["code"]
+                };
+            return dt;
         }
         private void GetPersistData(string reportPath, string sectionClause)
         {
